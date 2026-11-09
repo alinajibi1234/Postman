@@ -1,0 +1,50 @@
+name: API Integration Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  api-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Get the code from the repository
+      - uses: actions/checkout@v4
+
+      # 2. Install .NET
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x   # match your project's .NET version
+
+      # 3. Install Node.js and Newman
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Newman
+        run: npm install -g newman
+
+      # 4. Build all the APIs
+      - name: Build solution
+        run: dotnet build ShoppingMicroServicesApp.sln --configuration Release
+
+      # 5. Start the three APIs in the background
+      #    (NB: mappen hedder PaymentWebAPI, ikke PaymentsWebAPI)
+      - name: Start Web APIs
+        run: |
+          dotnet run --project UsersWebAPI/UsersWebAPI.csproj     --no-build -c Release &
+          dotnet run --project PaymentWebAPI/PaymentWebAPI.csproj --no-build -c Release &
+          dotnet run --project OrdersWebAPI/OrdersWebAPI.csproj   --no-build -c Release &
+          for url in http://localhost:5064/api/users http://localhost:5074/api/payments http://localhost:5121/api/orders; do
+            for i in $(seq 1 30); do
+              curl -sf "$url" > /dev/null && break
+              sleep 2
+            done
+          done
+
+      # 6. Run the Postman tests
+      - name: Run Newman tests
+        run: newman run postman/collection.json --environment postman/environment.json --insecure
